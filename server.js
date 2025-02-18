@@ -19,35 +19,29 @@ const auth = new JWT({
   scopes: ["https://www.googleapis.com/auth/spreadsheets"],
 });
 const doc = new GoogleSpreadsheet(process.env.GOOGLE_SHEET_ID, auth);
-// Function to append data to Google Sheets
-async function addRowToSheet(data) {
-    try {
-      console.log("Received Data:", data); // Log the data before sending it
-      await doc.loadInfo();
-      const sheet = doc.sheetsByIndex[0]; // First sheet
-  
-      await sheet.addRows(data);
-      console.log("Data successfully added to Google Sheets! ✅");
-    } catch (error) {
-      console.error("Error adding row:", error);
-    }
-  }
-  
 
-// API Route to receive data
+
 app.post("/add-job-entry", async (req, res) => {
   try {
-    const jobData = req.body; // Data from frontend
-    if (!Array.isArray(jobData) || jobData.length === 0) {
+    const { jobName, data } = req.body; // Get job name and data from request
+    if (!jobName || !Array.isArray(data) || data.length === 0) {
       return res.status(400).json({ message: "Invalid data format" });
     }
 
-    await addRowToSheet(jobData);
-    res.status(200).json({ message: "Data added successfully" });
+    await doc.loadInfo(); // Load spreadsheet metadata
+
+    let sheet = doc.sheetsByTitle[jobName]; // Check if the sheet exists
+    if (!sheet) {
+      sheet = await doc.addSheet({ title: jobName, headerValues: Object.keys(data[0]) });
+    }
+
+    await sheet.addRows(data); // Append data to the correct sheet
+    res.status(200).json({ message: `Data added to sheet: ${jobName}` });
   } catch (error) {
     console.error("Error:", error);
     res.status(500).json({ message: "Server error" });
   }
 });
+
 
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
