@@ -1,3 +1,4 @@
+const db = require("./database");
 require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
@@ -19,6 +20,50 @@ const auth = new JWT({
   scopes: ["https://www.googleapis.com/auth/spreadsheets"],
 });
 const doc = new GoogleSpreadsheet(process.env.GOOGLE_SHEET_ID, auth);
+
+// Get all jobs
+app.get("/jobs", (req, res) => {
+  db.all("SELECT * FROM jobs", [], (err, rows) => {
+    if (err) {
+      res.status(500).json({ error: err.message });
+    } else {
+      res.json(rows);
+    }
+  });
+});
+
+// Add a new job
+app.post("/jobs", (req, res) => {
+  const { name, color } = req.body;
+  if (!name || !color) {
+    return res.status(400).json({ error: "Job name and color are required" });
+  }
+
+  db.run(
+    "INSERT INTO jobs (name, color) VALUES (?, ?)",
+    [name, color],
+    function (err) {
+      if (err) {
+        res.status(500).json({ error: err.message });
+      } else {
+        res.status(201).json({ id: this.lastID, name, color });
+        console.log(`New Job added: ${name}`)
+      }
+    }
+  );
+});
+
+// Delete a job
+app.delete("/jobs/:id", (req, res) => {
+  const jobId = req.params.id;
+  db.run("DELETE FROM jobs WHERE id = ?", jobId, function (err) {
+    if (err) {
+      res.status(500).json({ error: err.message });
+    } else {
+      res.json({ message: "Job deleted successfully" });
+    }
+  });
+});
 
 
 app.post("/add-job-entry", async (req, res) => {
