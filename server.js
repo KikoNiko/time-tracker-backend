@@ -32,26 +32,48 @@ app.get("/jobs", (req, res) => {
   });
 });
 
-// Add a new job
+// Add a new job (max 10 jobs)
 app.post("/jobs", (req, res) => {
   const { name, color } = req.body;
+
   if (!name || !color) {
     return res.status(400).json({ error: "Job name and color are required" });
   }
 
-  db.run(
-    "INSERT INTO jobs (name, color) VALUES (?, ?)",
-    [name, color],
-    function (err) {
-      if (err) {
-        res.status(500).json({ error: err.message });
-      } else {
-        res.status(201).json({ id: this.lastID, name, color });
-        console.log(`New Job added: ${name}`)
-      }
+  db.get("SELECT COUNT(*) AS count FROM jobs", [], (err, row) => {
+    if (err) {
+      return res.status(500).json({ error: err.message });
     }
-  );
+
+    if (row.count >= 10) {
+      return res.status(400).json({ error: "You have reached the job limit (10 jobs max)." });
+    }
+
+    db.get("SELECT * FROM jobs WHERE LOWER(name) = LOWER(?)", [name], (err, existingJob) => {
+      if (err) {
+        return res.status(500).json({ error: err.message });
+      }
+
+      if (existingJob) {
+        return res.status(400).json({ error: "A job with this name already exists" });
+      }
+
+      db.run(
+        "INSERT INTO jobs (name, color) VALUES (?, ?)",
+        [name, color],
+        function (err) {
+          if (err) {
+            return res.status(500).json({ error: err.message });
+          }
+
+          res.status(201).json({ id: this.lastID, name, color });
+          console.log(`New Job added: ${name}`);
+        }
+      );
+    });
+  });
 });
+
 
 // Delete a job
 app.delete("/jobs/:id", (req, res) => {
