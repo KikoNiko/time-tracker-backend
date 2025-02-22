@@ -4,68 +4,12 @@ const express = require("express");
 const cors = require("cors");
 const { GoogleSpreadsheet } = require("google-spreadsheet");
 const { JWT } = require("google-auth-library");
-const jwt = require("jsonwebtoken");
-const { registerUser, findUserByEmail } = require("./database");
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 
 const PORT = process.env.PORT || 5000;
-
-const jwtSecret = process.env.JWT_SECRET;
-
-// User Registration
-app.post("/register", (req, res) => {
-  const { email, password } = req.body;
-
-  if (!email || !password) {
-    return res.status(400).json({ error: "Email and password are required" });
-  }
-
-  registerUser(email, password, (err, newUser) => {
-    if (err) {
-      return res.status(400).json({ error: "User already exists" });
-    }
-    res.status(201).json({ message: "User registered successfully", user: newUser });
-  });
-});
-
-// User Login
-app.post("/login", (req, res) => {
-  const { email, password } = req.body;
-
-  findUserByEmail(email, async (err, user) => {
-    if (err || !user) {
-      return res.status(400).json({ error: "Invalid email or password" });
-    }
-
-    const isValidPassword = await bcrypt.compare(password, user.password);
-    if (!isValidPassword) {
-      return res.status(400).json({ error: "Invalid email or password" });
-    }
-
-    const token = jwt.sign({ userId: user.id, email: user.email }, jwtSecret, { expiresIn: "24h" });
-
-    res.json({ token, userId: user.id });
-  });
-});
-
-// Middleware to Protect Routes
-const authenticateToken = (req, res, next) => {
-  const token = req.headers["authorization"];
-  if (!token) return res.status(401).json({ error: "Access denied" });
-
-  jwt.verify(token.split(" ")[1], jwtSecret, (err, user) => {
-    if (err) return res.status(403).json({ error: "Invalid token" });
-    req.user = user;
-    next();
-  });
-};
-
-app.post("/tracker", authenticateToken, (req, res) => {
-  res.json({ message: `User ${req.user.email} Welcome!` });
-});
 
 // Google Sheets Setup
 const creds = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT); // Load credentials from .env
@@ -165,6 +109,5 @@ app.post("/add-job-entry", async (req, res) => {
     res.status(500).json({ message: "Server error" });
   }
 });
-
 
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
