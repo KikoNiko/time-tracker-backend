@@ -9,11 +9,11 @@
     "google-spreadsheet": "^4.1.4",
     "google-spreadsheets": "^2.0.0",
     "googleapis": "^144.0.0",
+    "pg": "^8.13.3",
     "sqlite3": "^5.1.7"
   },
   "main": "server.js",
   "scripts": {
-  "start": "node server.js"
-  }  
+    "start": "node server.js"
+  }
 }
-
