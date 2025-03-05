@@ -1,21 +1,11 @@
-const sqlite3 = require("sqlite3").verbose();
+const { Pool } = require("pg");
+require("dotenv").config();
 
-// Open (or create) the SQLite database
-const db = new sqlite3.Database("./jobs.db", (err) => {
-  if (err) {
-    console.error("Error opening database:", err.message);
-  } else {
-    console.log("Connected to SQLite database.");
-  }
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: {
+    rejectUnauthorized: false,
+  },
 });
 
-db.run(
-  `CREATE TABLE IF NOT EXISTS jobs (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT UNIQUE NOT NULL,
-    color TEXT NOT NULL
-  )`
-);
-
-module.exports = db;
-
+module.exports = pool;

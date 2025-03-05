@@ -1,19 +1,39 @@
-const db = require("./database");
 require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
+const { Pool } = require("pg");
 const { GoogleSpreadsheet } = require("google-spreadsheet");
 const { JWT } = require("google-auth-library");
 
 const app = express();
+const PORT = process.env.PORT || 5000;
+
 app.use(cors());
 app.use(express.json());
 
-const PORT = process.env.PORT || 5000;
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: process.env.NODE_ENV === "production" ? { rejectUnauthorized: false } : false,
+});
 
-// Google Sheets Setup
-const creds = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT); // Load credentials from .env
+const initializeDatabase = async () => {
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS jobs (
+        id SERIAL PRIMARY KEY,
+        name TEXT UNIQUE NOT NULL,
+        color TEXT NOT NULL
+      );
+    `);
+    console.log("Jobs table is ready!");
+  } catch (err) {
+    console.error("Error initializing database:", err);
+  }
+};
 
+initializeDatabase();
+
+const creds = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT);
 const auth = new JWT({
   email: creds.client_email,
   key: creds.private_key,
@@ -21,91 +41,88 @@ const auth = new JWT({
 });
 const doc = new GoogleSpreadsheet(process.env.GOOGLE_SHEET_ID, auth);
 
-// Get all jobs
-app.get("/jobs", (req, res) => {
-  db.all("SELECT * FROM jobs", [], (err, rows) => {
-    if (err) {
-      res.status(500).json({ error: err.message });
-    } else {
-      res.json(rows);
-    }
-  });
+
+app.get("/jobs", async (req, res) => {
+  try {
+    const result = await pool.query("SELECT * FROM jobs ORDER BY id ASC");
+    res.json(result.rows);
+  } catch (err) {
+    console.error("Error fetching jobs:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
 });
 
-// Add a new job (max 10 jobs)
-app.post("/jobs", (req, res) => {
+
+app.post("/jobs", async (req, res) => {
   const { name, color } = req.body;
 
   if (!name || !color) {
     return res.status(400).json({ error: "Job name and color are required" });
   }
 
-  db.get("SELECT COUNT(*) AS count FROM jobs", [], (err, row) => {
-    if (err) {
-      return res.status(500).json({ error: err.message });
-    }
+  try {
+    const countResult = await pool.query("SELECT COUNT(*) FROM jobs");
+    const jobCount = parseInt(countResult.rows[0].count, 10);
 
-    if (row.count >= 10) {
+    if (jobCount >= 10) {
       return res.status(400).json({ error: "You have reached the job limit (10 jobs max)." });
     }
 
-    db.get("SELECT * FROM jobs WHERE LOWER(name) = LOWER(?)", [name], (err, existingJob) => {
-      if (err) {
-        return res.status(500).json({ error: err.message });
-      }
+    const existingJob = await pool.query("SELECT * FROM jobs WHERE LOWER(name) = LOWER($1)", [name]);
+    if (existingJob.rows.length > 0) {
+      return res.status(400).json({ error: "A job with this name already exists" });
+    }
 
-      if (existingJob) {
-        return res.status(400).json({ error: "A job with this name already exists" });
-      }
+    const result = await pool.query(
+      "INSERT INTO jobs (name, color) VALUES ($1, $2) RETURNING *",
+      [name, color]
+    );
 
-      db.run(
-        "INSERT INTO jobs (name, color) VALUES (?, ?)",
-        [name, color],
-        function (err) {
-          if (err) {
-            return res.status(500).json({ error: err.message });
-          }
-
-          res.status(201).json({ id: this.lastID, name, color });
-          console.log(`New Job added: ${name}`);
-        }
-      );
-    });
-  });
+    res.status(201).json(result.rows[0]);
+    console.log(`New Job added: ${name}`);
+  } catch (err) {
+    console.error("Error adding job:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
 });
 
 
-// Delete a job
-app.delete("/jobs/:id", (req, res) => {
-  const jobId = req.params.id;
-  db.run("DELETE FROM jobs WHERE id = ?", jobId, function (err) {
-    if (err) {
-      res.status(500).json({ error: err.message });
-    } else {
-      res.json({ message: "Job deleted successfully" });
+app.delete("/jobs/:id", async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    const result = await pool.query("DELETE FROM jobs WHERE id = $1 RETURNING *", [id]);
+
+    if (result.rowCount === 0) {
+      return res.status(404).json({ error: "Job not found" });
     }
-  });
+
+    res.json({ message: "Job deleted successfully" });
+  } catch (err) {
+    console.error("Error deleting job:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
 });
 
 
 app.post("/add-job-entry", async (req, res) => {
   try {
-    const { jobName, data } = req.body; // Get job name and data from request
+    const { jobName, data } = req.body;
     if (!jobName || !Array.isArray(data) || data.length === 0) {
       return res.status(400).json({ message: "Invalid data format" });
     }
 
-    await doc.loadInfo(); // Load spreadsheet metadata
+    await doc.loadInfo();
 
-    let sheet = doc.sheetsByTitle[jobName]; // Check if the sheet exists
+    let sheet = doc.sheetsByTitle[jobName];
     if (!sheet) {
       sheet = await doc.addSheet({ title: jobName, headerValues: Object.keys(data[0]) });
     }
 
-    await sheet.addRows(data); // Append data to the correct sheet
+    await sheet.addRows(data);
     res.status(200).json({ message: `Data added to sheet: ${jobName}` });
   } catch (error) {
-    console.error("Error:", error);
+    console.error("Error adding data to Google Sheets:", error);
     res.status(500).json({ message: "Server error" });
   }
 });
